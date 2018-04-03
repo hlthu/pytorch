@@ -2,7 +2,7 @@ import os
 import sys
 from string import Template, ascii_lowercase
 from ..cwrap import cwrap
-from ..cwrap.plugins import StandaloneExtension, NullableArguments, AutoGPU
+from ..cwrap.plugins import NNExtension, NullableArguments, AutoGPU
 from ..shared import import_module
 
 BASE_PATH = os.path.realpath(os.path.join(__file__, '..', '..', '..'))
@@ -21,8 +21,8 @@ FUNCTION_TEMPLATE = Template("""\
 """)
 
 COMMON_TRANSFORMS = {
-    'THIndex_t': 'long',
-    'THCIndex_t': 'long',
+    'THIndex_t': 'int64_t',
+    'THCIndex_t': 'int64_t',
     'THInteger_t': 'int',
 }
 COMMON_CPU_TRANSFORMS = {
@@ -74,7 +74,7 @@ for t in ['CudaHalf', 'Cuda', 'CudaDouble']:
 def wrap_function(name, type, arguments):
     cname = 'THNN_' + type + name
     declaration = ''
-    declaration += 'extern "C" void ' + cname + \
+    declaration += 'TH_API void ' + cname + \
         '(' + ', '.join(TYPE_TRANSFORMS[type].get(arg.type, arg.type)
                         for arg in arguments) + ');\n'
     declaration += FUNCTION_TEMPLATE.substitute(name=type + name, cname=cname)
@@ -109,7 +109,7 @@ def wrap_nn():
     with open('torch/csrc/nn/THNN.cwrap', 'w') as f:
         f.write(wrapper)
     cwrap('torch/csrc/nn/THNN.cwrap', plugins=[
-        StandaloneExtension('torch._thnn._THNN'),
+        NNExtension('torch._C._THNN'),
         NullableArguments(),
     ])
 
@@ -124,7 +124,7 @@ def wrap_cunn():
     with open('torch/csrc/nn/THCUNN.cwrap', 'w') as f:
         f.write(wrapper)
     cwrap('torch/csrc/nn/THCUNN.cwrap', plugins=[
-        StandaloneExtension('torch._thnn._THCUNN'),
+        NNExtension('torch._C._THCUNN'),
         NullableArguments(),
         AutoGPU(has_self=False),
     ])

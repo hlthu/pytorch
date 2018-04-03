@@ -1,9 +1,12 @@
-#include <iostream>
-#include <sstream>
+#include <Python.h>
+
 #include "torch/csrc/jit/ir.h"
 #include "torch/csrc/jit/pybind.h"
 #include "torch/csrc/jit/python_tracer.h"
 #include "torch/csrc/utils/pybind.h"
+
+#include <iostream>
+#include <sstream>
 
 namespace torch { namespace jit {
 
@@ -18,10 +21,15 @@ void initPythonIRBindings(PyObject * module_) {
       ss << g;
       return ss.str();
     })
-    .GS(inputs)
-    .GS(outputs)
+    .def("inputs",[](Graph &g) {
+      return py::make_iterator(g.inputs().begin(), g.inputs().end());
+    })
+    .def("outputs",[](Graph &g) {
+      return py::make_iterator(g.outputs().begin(), g.outputs().end());
+    })
+    // TODO: Iterator invalidation might make this hazardous
     .def("nodes",[](Graph &g) {
-      return py::make_iterator(g.nodes().begin(),g.nodes().end());
+      return py::make_iterator(g.nodes().begin(), g.nodes().end());
     })
     .def("addInput",[](Graph &g) { return g.addInput(); })
     .GS(advanceStage)
@@ -29,17 +37,22 @@ void initPythonIRBindings(PyObject * module_) {
     .GS(eraseInput)
     .GS(registerOutput)
     .def("create",[](Graph & g, const char * str) {
-      return g.create(stringToSymbol(str));
+      return g.create(Symbol::fromQualString(str));
     })
-    .def("create",[](Graph & g, const char * str, const std::vector<Node*> & inputs) {
-      return g.create(stringToSymbol(str),inputs);
+    .def("create",[](Graph & g, const char * str, size_t noutputs) {
+      return g.create(Symbol::fromQualString(str), noutputs);
     })
-    .GS(createSelect)
+    .def("create",[](Graph & g, const char * str, const std::vector<Value*> & inputs) {
+      return g.create(Symbol::fromQualString(str),inputs);
+    })
+    .def("create",[](Graph & g, const char * str, const std::vector<Value*> & inputs, size_t noutputs) {
+      return g.create(Symbol::fromQualString(str),inputs, noutputs);
+    })
     .GS(createConstant)
     .GS(createFusionGroup)
     .def("createClone",[](Graph & g, Node * n, py::object fn) {
-      return g.createClone(n, [&](Node * e) {
-        return fn(e).cast<Node*>();
+      return g.createClone(n, [&](Value * e) {
+        return fn(e).cast<Value*>();
       });
     })
     .GS(appendNode)
@@ -47,6 +60,38 @@ void initPythonIRBindings(PyObject * module_) {
     .GS(lint)
     ;
     #undef GS
+
+  #define VS(name) \
+    def(#name,&Value :: name)
+  py::class_<Value,std::unique_ptr<Value, py::nodelete>>(m,"Value")
+    .def("__repr__",[](Value & n) {
+      std::stringstream ss;
+      ss << n.uniqueName() << " defined in (" << *n.node() << ")";
+      return ss.str();
+    })
+    .VS(type)
+    .VS(setType)
+    .VS(inferTypeFrom)
+    // skip owningGraph because it returns a raw pointer to a otherwise
+    // std::shared_ptr stored graph object, and would cause a double free
+    .VS(unique)
+    .VS(uniqueName)
+    .VS(setUniqueName)
+    .VS(setStage)
+    .VS(stage)
+    .VS(offset)
+    .VS(uses)
+    .VS(isHandle)
+    .VS(replaceAllUsesWith)
+    .def("node",[](Value &v) { return v.node(); })
+    .def("setTypeAs", [](Value * node, Value * other) {
+      node->setType(other->type());
+      return node;
+    })
+    .VS(copyMetadata)
+    ;
+
+  #undef VS
 
   #define NS(name) \
     def(#name,&Node :: name)
@@ -56,27 +101,22 @@ void initPythonIRBindings(PyObject * module_) {
       ss << n;
       return ss.str();
     })
+    .def("hasMultipleOutputs",[](Node&n) {
+      return n.outputs().size() > 1;
+    })
+    .def("outputsSize",[](Node &n) {
+      return n.outputs().size();
+    })
     .NS(kind)
     .NS(stage)
-    .NS(type)
-    .NS(typeOption)
-    .NS(hasMultipleOutputs)
-    .NS(hasType)
-    .NS(setType)
-    .NS(inferTypeFrom)
-    // skip owningGraph because it returns a raw pointer to a otherwise
-    // std::shared_ptr stored graph object, and would cause a double free
-    .NS(debugName)
-    .NS(setDebugName)
-    .NS(unique)
-    .NS(uniqueName)
     .NS(setStage)
-    .NS(stage)
-    .NS(inputs)
-    .NS(input)
-    .NS(outputs)
-    .NS(offset)
-    .NS(uses)
+    .def("inputs",[](Node &n) {
+      return py::make_iterator(n.inputs().begin(), n.inputs().end());
+    })
+    .def("outputs",[](Node &n) {
+      return py::make_iterator(n.outputs().begin(), n.outputs().end());
+    })
+    .NS(output)
     .NS(addInput)
     .NS(replaceInput)
     .NS(replaceInputWith)
@@ -88,25 +128,31 @@ void initPythonIRBindings(PyObject * module_) {
     .NS(removeInput)
     .NS(removeAllInputs)
     .NS(destroy)
-    .def("typeAs", [](Node * node, Node * other) {
-      node->setType(other->typeOption());
-      return node;
-    })
+    .NS(hasUses)
+    .NS(eraseOutput)
+    .NS(addOutput)
+    .NS(scopeName)
+
 #define AS(name) def(#name,&Attributes<Node> :: name)
     // methods from Attributes
     .AS(copyAttributes)
+    .AS(hasAttributes)
+#undef AS
+#define AS(name) def(#name,&Attributes<Node> :: name ## S)
+    // The default method names take Symbol, but the string conversion for
+    // Symbol you to qualify with attr::. This is not very user friendly
+    // for attributes, so expose the string variants instead.
     .AS(hasAttribute)
     .AS(kindOf)
     .AS(removeAttribute)
-    .AS(hasAttributes)
     .AS(attributeNames)
 #undef AS
 #define CREATE_ACCESSOR(Kind,method) \
     def(#method "_",[](Node & n, const char * name, Kind##Attr::ValueType v) { \
-      return n . method ## _(stringToSymbol(name), std::move(v)); \
+      return n . method ## _(Symbol::attr(name), std::move(v)); \
     }) \
     .def(#method, [](Node & n, const char * name) { \
-      return n.method(stringToSymbol(name)); \
+      return n.method(Symbol::attr(name)); \
     })
     .CREATE_ACCESSOR(Float,f)
     .CREATE_ACCESSOR(Floats,fs)
@@ -114,11 +160,50 @@ void initPythonIRBindings(PyObject * module_) {
     .CREATE_ACCESSOR(Strings,ss)
     .CREATE_ACCESSOR(Int,i)
     .CREATE_ACCESSOR(Ints,is)
-    .CREATE_ACCESSOR(Tensor,t)
-    .CREATE_ACCESSOR(Tensors,ts)
     .CREATE_ACCESSOR(Graph,g)
     .CREATE_ACCESSOR(Graphs,gs)
 #undef CREATE_ACCESSOR
+    // Tensor (t_) -- manually written to unwrap the variable into a tensor.
+    .def("t_",[](Node & n, const char * name, torch::autograd::Variable v) {
+      return n.t_(Symbol::attr(name), std::move(v.data()));
+    })
+    .def("t", [](Node & n, const char * name) {
+      return torch::autograd::make_variable(n.t(Symbol::attr(name)), /*requires_grad=*/false);
+    })
+    // Tensors (ts_) -- manually written to unwrap variables into tensors.
+    .def("ts_",[](Node & n, const char * name, std::vector<torch::autograd::Variable> vs) {
+      std::vector<at::Tensor> tensors;
+      tensors.reserve(vs.size());
+      for (auto& variable : vs) {
+        tensors.push_back(std::move(variable.data()));
+      }
+      return n.ts_(Symbol::attr(name), std::move(tensors));
+    })
+    .def("ts", [](Node & n, const char * name) {
+      auto tensors = n.ts(Symbol::attr(name));
+      std::vector<torch::autograd::Variable> variables;
+      variables.reserve(tensors.size());
+      for (auto& tensor : tensors) {
+        variables.push_back(torch::autograd::make_variable(
+            std::move(tensor), /*requires_grad=*/false));
+      }
+      return variables;
+    })
+    .def("z_",[](Node & n, const char * name, at::Tensor v) {
+        return n.t_(Symbol::attr(name), std::move(v.view({})));
+    })
+    .def("z",[](Node & n, const char * name) {
+        return n.t(Symbol::attr(name));
+    })
+    .def("zs_",[](Node & n, const char * name, TensorsAttr::ValueType v) {
+        for (size_t i = 0; i < v.size(); ++ i) {
+            v[i] = v[i].view({});
+        }
+        return n.ts_(Symbol::attr(name), std::move(v));
+    })
+    .def("zs",[](Node & n, const char * name) {
+        return n.ts(Symbol::attr(name));
+    })
     .def("pyobj",[](Node & n) {
       return py::handle(n.expect<PythonOp>()->pyobj.get()).cast<py::object>();
     })
@@ -149,15 +234,17 @@ void initPythonIRBindings(PyObject * module_) {
     })
     .def("kind",[](Type& t_) {
       Type * t = &t_;
-      TYPE_IF(t,MultiType)
-        return "MultiType";
-      TYPE_ELSEIF(HandleType)
-        return "HandleType";
-      TYPE_ELSEIF(TensorType)
-        return "TensorType";
-      TYPE_END()
-      jit::barf("unknown type kind");
-      return "";
+      switch(t->kind()) {
+        case TypeKind::HandleType:
+          return "HandleType";
+        case TypeKind::DynamicType:
+          return "DynamicType";
+        case TypeKind::TensorType:
+          return "TensorType";
+        default:
+          torch::barf("unknown type kind");
+          return "";
+        }
     })
     .def("sizes",[](Type& t) {
       return t.expect<TensorType>()->sizes();
@@ -179,6 +266,9 @@ void initPythonIRBindings(PyObject * module_) {
 
   m.def("_jit_get_graph", [](tracer::TracingState* s) {
     return s->graph;
+  });
+  m.def("_jit_is_tracing", [](const autograd::Variable& var) {
+    return tracer::isTracing(var);
   });
 }
 }}

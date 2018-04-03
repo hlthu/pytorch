@@ -1,7 +1,13 @@
 from torch.autograd import Function, Variable
+from torch.autograd._functions.utils import prepare_onnx_paddings
 
 
 class ConstantPadNd(Function):
+
+    @staticmethod
+    def symbolic(g, input, pad, value=0):
+        paddings = prepare_onnx_paddings(len(input.type().sizes()), pad)
+        return g.op("Pad", input, pads_i=paddings, mode_s="constant", value_f=value)
 
     @staticmethod
     def forward(ctx, input, pad, value=0):

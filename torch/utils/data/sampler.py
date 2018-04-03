@@ -47,7 +47,7 @@ class RandomSampler(Sampler):
         self.data_source = data_source
 
     def __iter__(self):
-        return iter(torch.randperm(len(self.data_source)).long())
+        return iter(torch.randperm(len(self.data_source)).tolist())
 
     def __len__(self):
         return len(self.data_source)
@@ -76,6 +76,9 @@ class WeightedRandomSampler(Sampler):
     Arguments:
         weights (list)   : a list of weights, not necessary summing up to one
         num_samples (int): number of samples to draw
+        replacement (bool): if ``True``, samples are drawn with replacement.
+            If not, they are drawn without replacement, which means that when a
+            sample index is drawn for a row, it cannot be drawn again for that row.
     """
 
     def __init__(self, weights, num_samples, replacement=True):
@@ -114,7 +117,7 @@ class BatchSampler(object):
     def __iter__(self):
         batch = []
         for idx in self.sampler:
-            batch.append(idx)
+            batch.append(int(idx))
             if len(batch) == self.batch_size:
                 yield batch
                 batch = []

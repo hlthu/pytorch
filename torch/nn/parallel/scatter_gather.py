@@ -4,7 +4,7 @@ from ._functions import Scatter, Gather
 
 
 def scatter(inputs, target_gpus, dim=0):
-    """
+    r"""
     Slices variables into approximately equal chunks and
     distributes them across given GPUs. Duplicates
     references to objects that are not variables. Does not
@@ -14,19 +14,27 @@ def scatter(inputs, target_gpus, dim=0):
         if isinstance(obj, Variable):
             return Scatter.apply(target_gpus, None, dim, obj)
         assert not torch.is_tensor(obj), "Tensors not supported in scatter."
-        if isinstance(obj, tuple):
+        if isinstance(obj, tuple) and len(obj) > 0:
             return list(zip(*map(scatter_map, obj)))
-        if isinstance(obj, list):
+        if isinstance(obj, list) and len(obj) > 0:
             return list(map(list, zip(*map(scatter_map, obj))))
-        if isinstance(obj, dict):
+        if isinstance(obj, dict) and len(obj) > 0:
             return list(map(type(obj), zip(*map(scatter_map, obj.items()))))
         return [obj for targets in target_gpus]
 
-    return scatter_map(inputs)
+    # After scatter_map is called, a scatter_map cell will exist. This cell
+    # has a reference to the actual function scatter_map, which has references
+    # to a closure that has a reference to the scatter_map cell (because the
+    # fn is recursive). To avoid this reference cycle, we set the function to
+    # None, clearing the cell
+    try:
+        return scatter_map(inputs)
+    finally:
+        scatter_map = None
 
 
 def scatter_kwargs(inputs, kwargs, target_gpus, dim=0):
-    """Scatter with support for kwargs dictionary"""
+    r"""Scatter with support for kwargs dictionary"""
     inputs = scatter(inputs, target_gpus, dim) if inputs else []
     kwargs = scatter(kwargs, target_gpus, dim) if kwargs else []
     if len(inputs) < len(kwargs):
@@ -39,7 +47,7 @@ def scatter_kwargs(inputs, kwargs, target_gpus, dim=0):
 
 
 def gather(outputs, target_device, dim=0):
-    """
+    r"""
     Gathers variables from different GPUs on a specified device
       (-1 means the CPU).
     """
@@ -49,5 +57,16 @@ def gather(outputs, target_device, dim=0):
             return Gather.apply(target_device, dim, *outputs)
         if out is None:
             return None
+        if isinstance(out, dict):
+            if not all((len(out) == len(d) for d in outputs)):
+                raise ValueError('All dicts must have the same number of keys')
+            return type(out)(((k, gather_map([d[k] for d in outputs]))
+                              for k in out))
         return type(out)(map(gather_map, zip(*outputs)))
-    return gather_map(outputs)
+
+    # Recursive function calls like this create reference cycles.
+    # Setting the function to None clears the refcycle.
+    try:
+        return gather_map(outputs)
+    finally:
+        gather_map = None

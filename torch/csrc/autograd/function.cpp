@@ -1,34 +1,22 @@
-#include "function.h"
+#include "torch/csrc/autograd/function.h"
 
-#include <string>
-
-#include "variable.h"
-#include "torch/csrc/jit/ir.h"
 #include "torch/csrc/autograd/functions/special.h"
+#include "torch/csrc/autograd/variable.h"
+#include "torch/csrc/jit/ir.h"
+
+#include <ATen/ATen.h>
+
+#include <algorithm>
+#include <cstdint>
+#include <memory>
+#include <stdexcept>
+#include <string>
+#include <utility>
+#include <vector>
 
 namespace torch { namespace autograd {
 
-auto Function::flags(const variable_list& inputs) -> FunctionFlags {
-  int num_inputs = inputs.size();
-  FunctionFlags f;
-  f.is_executable = false;
-  f.is_volatile = false;
-  f.next_functions.resize(num_inputs);
-  for (int i = 0; i != num_inputs; ++i) {
-    if (inputs[i].defined()) {
-      auto& var = inputs[i];
-      f.is_executable |= var.requires_grad();
-      f.is_volatile |= var.is_volatile();
-      if (var.grad_fn()) {
-        f.next_functions[i] = std::make_pair<>(var.grad_fn(), var.output_nr());
-      } else {
-        f.next_functions[i] = std::make_pair<>(var.grad_accumulator(), 0);
-      }
-    }
-  }
-  f.is_executable &= !f.is_volatile;
-  return f;
-}
+thread_local uint64_t Function::next_sequence_nr_ = 0;
 
 auto Function::name() -> std::string {
   return std::string(typeid(*this).name());
@@ -37,7 +25,7 @@ auto Function::name() -> std::string {
 // This function is analogous to make_trace which operates on PythonOp, but this
 // function instead works for C++ implemented autograd Functions, which don't
 // actually have any backing Python class. We still need to trace them!
-variable_list Function::tracedApply(variable_list inputs) {
+variable_list Function::traced_apply(variable_list inputs) {
   using namespace torch::jit;
   // Traceable Functions are completely transparent to the JIT.
   if (is_traceable()) {
@@ -48,7 +36,16 @@ variable_list Function::tracedApply(variable_list inputs) {
 
   // Insert a CppOp in the trace.
   auto& graph = state->graph;
-  auto* this_node = graph->createCppOp(getSharedPtr());
+  std::vector<VariableFlags> var_flags;
+  for(auto & input: inputs) {
+    var_flags.push_back(VariableFlags::of(input));
+  }
+  auto* this_node = graph->createCppOp(get_shared_ptr(), std::move(var_flags));
+#ifndef NO_PYTHON
+  this_node->setSourceLocation(std::make_shared<StringSourceLocation>(
+        jit::tracer::getPythonInterpreterStackTrace()
+  ));
+#endif
   for (auto& input: inputs) {
     this_node->addInput(tracer::getValueTrace(state, input));
   }
@@ -63,7 +60,7 @@ variable_list Function::tracedApply(variable_list inputs) {
   int num_outputs = outputs.size();
   for (int i = 0; i < num_outputs; ++i) {
     auto& output = outputs[i];
-    Node* sel = graph->appendNode(graph->createSelect(this_node, i));
+    auto sel = this_node->addOutput();
     // TODO: At the moment, C++ does not track shared storage.  It
     // should.  Update this when that happens.
     if (output.defined()) {
@@ -80,29 +77,30 @@ variable_list Function::tracedApply(variable_list inputs) {
     // There's no point in wrapping functions in Eval, if we know they already are
     // part of another Eval subgraph. This is both a small optimization, and
     // it allows us to not implement saved_variables() in many functions.
-    bool should_trace_backward = tracing_state->in_eval_subgraph;
+    const bool should_trace_backward = tracing_state_->in_eval_subgraph;
     if (!should_trace_backward) {
       auto saved_vars = saved_variables();
       if (!saved_vars)
-        throw std::runtime_error(std::string("saved_variables() needed but not implemented in ") + name());
+        throw std::runtime_error("saved_variables() needed but not implemented in " + name());
       variable_list bw_subgraph_inputs(inputs);
       for (auto& saved_var : *saved_vars) {
-        bw_subgraph_inputs.emplace_back(saved_var.unpack(getSharedPtr()));
+        bw_subgraph_inputs.emplace_back(saved_var.unpack(get_shared_ptr()));
       }
       tracer::nontraceableBackwardSubgraph(bw_subgraph_inputs, outputs);
     }
     bool has_backwards_eval = !should_trace_backward || this_eval;
     if (has_backwards_eval)
-      setUpContextEdge(this_node, num_outputs, inputs, outputs);
+      set_up_context_edge(this_node, inputs, outputs);
   }
   return outputs;
 }
 
-void Function::setUpContextEdge(jit::Node* node, int ctx_output_nr,
-                                const variable_list& inputs, const variable_list& outputs) {
-  jit::Graph* graph = node->owningGraph();
-  jit::Node* ctx_select = graph->appendNode(graph->createSelect(node, ctx_output_nr));
-  ctx_select->setType(std::make_shared<jit::HandleType>());
+void Function::set_up_context_edge(
+    jit::Node* this_node,
+    const variable_list& inputs,
+    const variable_list& outputs) {
+  auto ctx_select = this_node->addOutput();
+  ctx_select->setType(jit::HandleType::get());
   auto backward_eval = Eval::getBackwardEval(inputs, outputs);
   if (backward_eval)
     backward_eval->forward_ctx_select = ctx_select;

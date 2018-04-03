@@ -3,7 +3,7 @@ import torch
 
 
 def elu_double_backwards(ctx, ggI):
-    t = ctx.saved_variables
+    t = ctx.saved_tensors
     input, grad_output = t[0], t[1]
     alpha = ctx.additional_args[0]
 
@@ -17,7 +17,7 @@ def elu_double_backwards(ctx, ggI):
 
 
 def gatedlinear_double_backwards(ctx, ggI):
-    input, gO = ctx.saved_variables
+    input, gO = ctx.saved_tensors
     dim = ctx.additional_args[0]
 
     input_size = input.size(dim) // 2
@@ -43,7 +43,7 @@ def gatedlinear_double_backwards(ctx, ggI):
 
 
 def hardshrink_double_backwards(ctx, ggI):
-    t = ctx.saved_variables
+    t = ctx.saved_tensors
     input = t[0]
     lambd = ctx.additional_args[0]
     gI = None
@@ -55,7 +55,7 @@ def hardshrink_double_backwards(ctx, ggI):
 
 
 def hardtanh_double_backwards(ctx, ggI):
-    t = ctx.saved_variables
+    t = ctx.saved_tensors
     input, grad_output = t[0], t[1]
     min_val, max_val = ctx.additional_args[0:2]
 
@@ -67,7 +67,7 @@ def hardtanh_double_backwards(ctx, ggI):
 
 
 def leakyrelu_double_backwards(ctx, ggI):
-    t = ctx.saved_variables
+    t = ctx.saved_tensors
     input = t[0]
     negative_slope = ctx.additional_args[0]
 
@@ -79,7 +79,7 @@ def leakyrelu_double_backwards(ctx, ggI):
 
 
 def logsigmoid_double_backwards(ctx, ggI):
-    t = ctx.saved_variables
+    t = ctx.saved_tensors
     # maybe more efficient in terms of output, but save_output is False
     input, gO = t[0], t[1]
 
@@ -91,81 +91,8 @@ def logsigmoid_double_backwards(ctx, ggI):
     return gI, ggO, None, None, None, None
 
 
-def logsoftmax_double_backwards(ctx, ggI):
-    t = ctx.saved_variables
-    gO, output = t[1], t[2]
-
-    output_exp = output.exp()
-    gO_sum = gO.sum(dim=1, keepdim=True)
-    ggI_output_exp = ggI * output_exp
-    ggI_output_exp_sum = ggI_output_exp.sum(dim=1, keepdim=True)
-
-    gI = output_exp * gO_sum * ggI_output_exp_sum - ggI_output_exp * gO_sum
-    ggO = ggI - ggI_output_exp_sum
-
-    return gI, ggO, None, None, None, None
-
-
-def reflectionpad1d_double_backwards(ctx, ggI):
-    gI = None
-    ggO = torch.nn._functions.thnn.auto.ReflectionPad1d.apply(ggI, *ctx.additional_args)
-
-    return gI, ggO, None, None, None, None
-
-
-def reflectionpad2d_double_backwards(ctx, ggI):
-    gI = None
-    ggO = torch.nn._functions.thnn.auto.ReflectionPad2d.apply(ggI, *ctx.additional_args)
-
-    return gI, ggO, None, None, None, None
-
-
-def replicationpad1d_double_backwards(ctx, ggI):
-    gI = None
-    ggO = torch.nn._functions.thnn.auto.ReplicationPad1d.apply(ggI, *ctx.additional_args)
-
-    return gI, ggO, None, None, None, None
-
-
-def replicationpad2d_double_backwards(ctx, ggI):
-    gI = None
-    ggO = torch.nn._functions.thnn.auto.ReplicationPad2d.apply(ggI, *ctx.additional_args)
-
-    return gI, ggO, None, None, None, None
-
-
-def replicationpad3d_double_backwards(ctx, ggI):
-    gI = None
-    ggO = torch.nn._functions.thnn.auto.ReplicationPad3d.apply(ggI, *ctx.additional_args)
-
-    return gI, ggO, None, None, None, None
-
-
-def softmax_double_backwards(ctx, ggI):
-    t = ctx.saved_variables
-    gO, output = t[1], t[2]
-
-    # terms for reuse
-    ggI_output = ggI * output
-    ggI_out_sum = ggI_output.sum(dim=1, keepdim=True)
-    ggI_out_sum_output = ggI_out_sum * output
-    gO_out_sum = (gO * output).sum(dim=1, keepdim=True)
-
-    # gI calculation
-    gI_t0 = ggI_output * (gO - gO_out_sum)
-    gI_t1 = output * ((ggI_output * gO).sum(dim=1, keepdim=True).sub_(gO_out_sum * ggI_out_sum))
-    gI_t2 = ggI_out_sum_output * gO
-    gI_t3 = ggI_out_sum_output * gO_out_sum
-    gI = gI_t0 - gI_t1 - gI_t2 + gI_t3
-
-    # gO calculation
-    ggO = output * (ggI - ggI_out_sum)
-
-    return gI, ggO, None, None, None, None
-
-
 def softplus_double_backwards(ctx, ggI):
-    t = ctx.saved_variables
+    t = ctx.saved_tensors
     input, gO, output = t[0], t[1], t[2]
     beta, threshold = ctx.additional_args[0], ctx.additional_args[1]
 
@@ -188,7 +115,7 @@ def softshrink_double_backwards(ctx, ggI):
 
 
 def threshold_double_backwards(ctx, ggI):
-    t = ctx.saved_variables
+    t = ctx.saved_tensors
     input = t[0]
     threshold, value = ctx.additional_args[0:2]
 
@@ -200,7 +127,7 @@ def threshold_double_backwards(ctx, ggI):
 
 def klddivloss_double_backwards(ctx, ggI):
     size_average = ctx.additional_args[0]
-    input, target, gO = ctx.saved_variables
+    input, target, gO = ctx.saved_tensors
     div_factor = input.nelement() if size_average else 1
 
     gI = None
@@ -211,7 +138,7 @@ def klddivloss_double_backwards(ctx, ggI):
 
 def l1loss_double_backwards(ctx, ggI):
     size_average = ctx.additional_args[0]
-    input, target, grad_output = ctx.saved_variables
+    input, target, grad_output = ctx.saved_tensors
     gI = Variable(ggI.data.new(ggI.size()).zero_())
 
     positive_mask = (input > target).type_as(ggI)
@@ -224,21 +151,26 @@ def l1loss_double_backwards(ctx, ggI):
 
 def mseloss_double_backwards(ctx, ggI):
     size_average = ctx.additional_args[0]
-    input, target, gO = ctx.saved_variables
-    div_factor = input.nelement() if size_average else 1
+    reduce = ctx.additional_args[1]
+    input, target, gO = ctx.saved_tensors
+    div_factor = input.nelement() if size_average and reduce else 1
 
     gI = ggI * (gO * 2. / div_factor).expand_as(input)
-    ggO = (ggI * (input - target)).sum() * (2. / div_factor)
+    if reduce:
+        ggO = (ggI * (input - target)).sum() * (2. / div_factor)
+    else:
+        ggO = (ggI * (input - target)) * 2.
 
     return gI, None, ggO, None, None
 
 
 def nllloss_double_backwards(ctx, ggI):
-    t = ctx.saved_variables
+    t = ctx.saved_tensors
     target = t[1]
     weights = Variable(ctx.additional_args[1])
     size_average = ctx.additional_args[0]
     ignore_index = ctx.additional_args[3]
+    reduce = ctx.additional_args[4]
 
     gI = None
 
@@ -259,19 +191,22 @@ def nllloss_double_backwards(ctx, ggI):
         weights_to_scatter = weights_maybe_resized.gather(0, safe_target)
 
     weights_to_scatter.masked_fill_(target_mask, 0)
-    divisor = weights_to_scatter.sum() if size_average else 1
+    divisor = weights_to_scatter.sum() if size_average and reduce else 1
     weights_to_scatter = -1 * weights_to_scatter / divisor
     zeros = Variable(ggI.data.new(ggI.size()).zero_())
     mask = zeros.scatter_(1, safe_target.unsqueeze(1), weights_to_scatter.unsqueeze(1))
 
-    ggO = (ggI * mask).sum()
+    if reduce:
+        ggO = (ggI * mask).sum()
+    else:
+        ggO = (ggI * mask).sum(dim=1)
 
     return gI, None, ggO, None, None, None
 
 
 def smoothl1loss_double_backwards(ctx, ggI):
     size_average = ctx.additional_args[0]
-    input, target, gO = ctx.saved_variables
+    input, target, gO = ctx.saved_tensors
     div_factor = input.nelement() if size_average else 1
 
     input_sub_target = input - target
@@ -289,7 +224,7 @@ def smoothl1loss_double_backwards(ctx, ggI):
 
 def softmarginloss_double_backwards(ctx, ggI):
     size_average = ctx.additional_args[0]
-    input, target, gO = ctx.saved_variables
+    input, target, gO = ctx.saved_tensors
     div_factor = input.nelement() if size_average else 1
 
     t0 = (1 + (-target * input).exp()).pow(-1)
@@ -309,13 +244,6 @@ double_backwards_fns = {
     'Hardtanh': hardtanh_double_backwards,
     'LeakyReLU': leakyrelu_double_backwards,
     'LogSigmoid': logsigmoid_double_backwards,
-    'LogSoftmax': logsoftmax_double_backwards,
-    'ReflectionPad1d': reflectionpad1d_double_backwards,
-    'ReflectionPad2d': reflectionpad2d_double_backwards,
-    'ReplicationPad1d': replicationpad1d_double_backwards,
-    'ReplicationPad2d': replicationpad2d_double_backwards,
-    'ReplicationPad3d': replicationpad3d_double_backwards,
-    'Softmax': softmax_double_backwards,
     'Softplus': softplus_double_backwards,
     'Softshrink': softshrink_double_backwards,
     'Threshold': threshold_double_backwards,

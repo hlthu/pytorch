@@ -1,26 +1,20 @@
 #include "Size.h"
 
 #include <string>
+#include "torch/csrc/utils/object_ptr.h"
 #include "torch/csrc/utils/python_strings.h"
-#include "THP.h"
-
-PyObject* THPSizeClass = NULL;
+#include "torch/csrc/utils/python_tuples.h"
 
 struct THPSize {
   PyTupleObject tuple;
 };
 
-PyObject * THPSize_New(int dim, int64_t *sizes)
+PyObject * THPSize_New(int dim, const int64_t *sizes)
 {
-  PyTypeObject* type = (PyTypeObject*)THPSizeClass;
-  PyObject* self = type->tp_alloc(type, dim);
-  if (!self) {
-    return NULL;
-  }
-  for (int i = 0; i < dim; ++i) {
-    PyTuple_SET_ITEM(self, i, PyLong_FromLong(sizes[i]));
-  }
-  return self;
+  auto self = THPObjectPtr(THPSizeType.tp_alloc(&THPSizeType, dim));
+  if (!self) throw python_error();
+  THPUtils_packInt64Array(self, dim, sizes);
+  return self.release();
 }
 
 static PyObject * THPSize_pynew(PyTypeObject *type, PyObject *args, PyObject *kwargs)
@@ -40,6 +34,7 @@ static PyObject * THPSize_pynew(PyTypeObject *type, PyObject *args, PyObject *kw
 
 static PyObject * THPSize_repr(THPSize *self)
 {
+  HANDLE_TH_ERRORS
   std::string repr("torch.Size([");
   for (Py_ssize_t i = 0; i < PyTuple_Size((PyObject*)self); ++i) {
     if (i != 0) {
@@ -49,6 +44,7 @@ static PyObject * THPSize_repr(THPSize *self)
   }
   repr += "])";
   return THPUtils_packString(repr);
+  END_HANDLE_TH_ERRORS
 }
 
 extern PyTypeObject THPSizeType;
@@ -64,12 +60,16 @@ static PyObject* wrap_tuple_fn(Args ... args)
   return result.release();
 }
 
-static auto sq_concat = PyTuple_Type.tp_as_sequence->sq_concat;
-static auto sq_repeat = PyTuple_Type.tp_as_sequence->sq_repeat;
-#if PY_MAJOR_VERSION == 2
-static auto sq_slice = PyTuple_Type.tp_as_sequence->sq_slice;
-#endif
-static auto mp_subscript = PyTuple_Type.tp_as_mapping->mp_subscript;
+// We use an anonymous namespace instead of static to work around
+// (what @peterjc123 think is) a bug in Visual Studio
+namespace {
+  auto sq_concat = PyTuple_Type.tp_as_sequence->sq_concat;
+  auto sq_repeat = PyTuple_Type.tp_as_sequence->sq_repeat;
+  #if PY_MAJOR_VERSION == 2
+  auto sq_slice = PyTuple_Type.tp_as_sequence->sq_slice;
+  #endif
+  binaryfunc mp_subscript = PyTuple_Type.tp_as_mapping->mp_subscript;
+}
 
 
 static PySequenceMethods THPSize_as_sequence = {
@@ -135,12 +135,13 @@ PyTypeObject THPSizeType = {
   THPSize_pynew,                         /* tp_new */
 };
 
-bool THPSize_init(PyObject *module)
+void THPSize_init(PyObject *module)
 {
-  THPSizeClass = (PyObject*)&THPSizeType;
-  if (PyType_Ready(&THPSizeType) < 0)
-    return false;
+  if (PyType_Ready(&THPSizeType) < 0) {
+    throw python_error();
+  }
   Py_INCREF(&THPSizeType);
-  PyModule_AddObject(module, "Size", (PyObject *)&THPSizeType);
-  return true;
+  if (PyModule_AddObject(module, "Size", (PyObject*)&THPSizeType) < 0) {
+    throw python_error();
+  }
 }

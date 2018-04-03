@@ -20,6 +20,12 @@ def _make_function_class_criterion(class_name, update_output, update_grad_input,
             weight_arg_idx = i
             break
 
+    reduce_arg_idx = -1
+    for i, arg in enumerate(update_output.arguments):
+        if arg.name == 'reduce':
+            reduce_arg_idx = i
+            break
+
     buffers_idx = []
     additional_arg_idx = 0
     for arg in update_output.arguments[4:]:
@@ -34,7 +40,7 @@ def _make_function_class_criterion(class_name, update_output, update_grad_input,
 
     @staticmethod
     def forward(ctx, input, target, *args):
-        ctx._backend = type2backend[type(input)]
+        ctx._backend = type2backend[input.type()]
         ctx.save_for_backward(input, target)
         if weight_arg_idx >= 0:
             ctx.weight = args[0]
@@ -55,7 +61,7 @@ def _make_function_class_criterion(class_name, update_output, update_grad_input,
 
     @staticmethod
     def backward(ctx, grad_output):
-        input, target = ctx.saved_variables
+        input, target = ctx.saved_tensors
         # apply returns grad_input, so we need to return Nones for target (1) + 1 for each extra arg passed to forward.
         return ((backward_cls.apply(input, target, grad_output, ctx.additional_args, ctx._backend),) +
                 (None,) * (ctx.forward_args_count + 1))
@@ -66,6 +72,12 @@ def _make_function_class_criterion(class_name, update_output, update_grad_input,
         ctx._backend = backend_ctx
         ctx.save_for_backward(input, target, grad_output)
         grad_input = grad_output.new().resize_as_(input).zero_()
+
+        if reduce_arg_idx >= 0:
+            getattr(ctx._backend, update_grad_input.name)(ctx._backend.library_state, input, target,
+                                                          grad_output, grad_input, *ctx.additional_args)
+            return grad_input
+
         getattr(ctx._backend, update_grad_input.name)(ctx._backend.library_state, input, target,
                                                       grad_input, *ctx.additional_args)
         grad_output_expanded = grad_output.view(*repeat(1, grad_input.dim()))
@@ -134,7 +146,7 @@ def _make_function_class(class_name, update_output, update_grad_input, acc_grad_
 
     @staticmethod
     def forward(ctx, input, *params):
-        ctx._backend = type2backend[type(input)]
+        ctx._backend = type2backend[input.type()]
 
         ctx.additional_args = []
         tensor_param_list = []
@@ -187,7 +199,7 @@ def _make_function_class(class_name, update_output, update_grad_input, acc_grad_
 
     @staticmethod
     def backward(ctx, grad_output):
-        t = ctx.saved_variables
+        t = ctx.saved_tensors
         input, tensor_params = t[0], t[1:]
         # Some notes on this function call:
         # 1) We need to pass params as *params so they are unwrapped correctly in backward_cls_forward.
@@ -275,6 +287,8 @@ def _generate_function_classes(scope_dict):
         'VolumetricAveragePooling',
         'VolumetricMaxPooling',
         'VolumetricMaxUnpooling',
+        'VolumetricAdaptiveAveragePooling',
+        'VolumetricAdaptiveMaxPooling',
         'VolumetricConvolution',
         'VolumetricFullConvolution',
         'VolumetricConvolutionMM',
@@ -284,6 +298,8 @@ def _generate_function_classes(scope_dict):
         'LookupTableBag',
         'PReLU',
         'RReLU',
+        'SoftMax',
+        'LogSoftMax',
         'GRUFused',
         'LSTMFused',
         'unfolded',
@@ -298,8 +314,6 @@ def _generate_function_classes(scope_dict):
         'SpatialReplicationPadding': 'ReplicationPad2d',
         'VolumetricReplicationPadding': 'ReplicationPad3d',
         'VolumetricMaxUnpooling': 'MaxUnpool3d',
-        'SoftMax': 'Softmax',
-        'LogSoftMax': 'LogSoftmax',
         'HardTanh': 'Hardtanh',
         'HardShrink': 'Hardshrink',
         'SoftPlus': 'Softplus',

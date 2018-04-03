@@ -93,13 +93,15 @@ class LBFGS(Optimizer):
         line_search_fn = group['line_search_fn']
         history_size = group['history_size']
 
-        state = self.state['global_state']
+        # NOTE: LBFGS has only global state, but we register it as state for
+        # the first param, because this helps with casting in load_state_dict
+        state = self.state[self._params[0]]
         state.setdefault('func_evals', 0)
         state.setdefault('n_iter', 0)
 
         # evaluate initial f(x) and df/dx
         orig_loss = closure()
-        loss = orig_loss.data[0]
+        loss = float(orig_loss)
         current_evals = 1
         state['func_evals'] += 1
 
@@ -208,7 +210,7 @@ class LBFGS(Optimizer):
                     # re-evaluate function only if not in last iteration
                     # the reason we do this: in a stochastic setting,
                     # no use to re-evaluate that function here
-                    loss = closure().data[0]
+                    loss = float(closure())
                     flat_grad = self._gather_flat_grad()
                     abs_grad_sum = flat_grad.abs().sum()
                     ls_func_evals = 1

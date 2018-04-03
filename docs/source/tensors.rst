@@ -1,5 +1,7 @@
 .. currentmodule:: torch
 
+.. _tensor-doc:
+
 torch.Tensor
 ===================================
 
@@ -112,6 +114,9 @@ view of a storage and defines numeric operations on it.
    .. automethod:: bernoulli_
    .. automethod:: bmm
    .. automethod:: byte
+   .. automethod:: btrifact
+   .. automethod:: btrifact_with_info
+   .. automethod:: btrisolve
    .. automethod:: cauchy_
    .. automethod:: ceil
    .. automethod:: ceil_
@@ -132,6 +137,7 @@ view of a storage and defines numeric operations on it.
    .. automethod:: cumprod
    .. automethod:: cumsum
    .. automethod:: data_ptr
+   .. automethod:: det
    .. automethod:: diag
    .. automethod:: dim
    .. automethod:: dist
@@ -150,6 +156,8 @@ view of a storage and defines numeric operations on it.
    .. automethod:: erfinv_
    .. automethod:: exp
    .. automethod:: exp_
+   .. automethod:: expm1
+   .. automethod:: expm1_
    .. automethod:: expand
    .. automethod:: expand_as
    .. automethod:: exponential_
@@ -192,6 +200,7 @@ view of a storage and defines numeric operations on it.
    .. automethod:: lerp
    .. automethod:: lerp_
    .. automethod:: log
+   .. automethod:: logdet
    .. automethod:: log1p
    .. automethod:: log1p_
    .. automethod:: log_
@@ -238,6 +247,7 @@ view of a storage and defines numeric operations on it.
    .. automethod:: pow_
    .. automethod:: prod
    .. automethod:: pstrf
+   .. automethod:: put_
    .. automethod:: qr
    .. automethod:: random_
    .. automethod:: reciprocal
@@ -247,6 +257,7 @@ view of a storage and defines numeric operations on it.
    .. automethod:: renorm
    .. automethod:: renorm_
    .. automethod:: repeat
+   .. automethod:: reshape
    .. automethod:: resize_
    .. automethod:: resize_as_
    .. automethod:: round
@@ -267,6 +278,7 @@ view of a storage and defines numeric operations on it.
    .. automethod:: sinh
    .. automethod:: sinh_
    .. automethod:: size
+   .. automethod:: slogdet
    .. automethod:: sort
    .. automethod:: split
    .. automethod:: sqrt
@@ -285,6 +297,7 @@ view of a storage and defines numeric operations on it.
    .. automethod:: symeig
    .. automethod:: t
    .. automethod:: t_
+   .. automethod:: take
    .. automethod:: tan
    .. automethod:: tan_
    .. automethod:: tanh
@@ -305,9 +318,17 @@ view of a storage and defines numeric operations on it.
    .. automethod:: type_as
    .. automethod:: unfold
    .. automethod:: uniform_
+   .. automethod:: unique
    .. automethod:: unsqueeze
    .. automethod:: unsqueeze_
    .. automethod:: var
    .. automethod:: view
    .. automethod:: view_as
    .. automethod:: zero_
+
+.. class:: ByteTensor()
+
+   The following methods are unique to :class:`torch.ByteTensor`.
+
+   .. automethod:: all
+   .. automethod:: any
